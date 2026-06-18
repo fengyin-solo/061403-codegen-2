@@ -74,6 +74,22 @@
         </div>
       </div>
 
+      <div class="map-section">
+        <SnowMap
+          :isDay="isDay"
+          :isNight="isNight"
+          :isBlizzard="isBlizzard"
+          :dayCount="dayCount"
+          :canExplore="canExplore"
+          :isExploring="isExploring"
+          :exploreTarget="exploreTarget"
+          :exploreRoute="exploreRoute"
+          :exploreProgress="exploreProgress"
+          @explore="handleExplore"
+          @cancel="handleCancelExplore"
+        />
+      </div>
+
       <div class="bottom-section">
         <LogPanel :logs="actionLog" />
       </div>
@@ -104,6 +120,7 @@ import ActionPanel from './components/ActionPanel.vue'
 import LogPanel from './components/LogPanel.vue'
 import SaveManager from './components/SaveManager.vue'
 import GameOver from './components/GameOver.vue'
+import SnowMap from './components/SnowMap.vue'
 
 const {
   temperature,
@@ -131,7 +148,14 @@ const {
   loadGame,
   getSaveSlots,
   deleteSave,
-  restartGame
+  restartGame,
+  canExplore,
+  isExploring,
+  exploreTarget,
+  exploreRoute,
+  exploreProgress,
+  startExplore,
+  cancelExplore
 } = useGame()
 
 const {
@@ -220,6 +244,21 @@ function handleDelete(slotName) {
 
 function handleRestart() {
   restartGame()
+}
+
+function handleExplore(zoneId, routeId) {
+  playHunt()
+  const result = startExplore(zoneId, routeId)
+  if (result) {
+    playSuccess()
+  } else {
+    playWarning()
+  }
+}
+
+function handleCancelExplore() {
+  playWarning()
+  cancelExplore()
 }
 
 function showSaveManager() {
@@ -401,6 +440,11 @@ watch(isDanger, (newVal) => {
 .right-panel {
   display: flex;
   flex-direction: column;
+}
+
+.map-section {
+  display: grid;
+  grid-template-columns: 1fr;
 }
 
 .bottom-section {

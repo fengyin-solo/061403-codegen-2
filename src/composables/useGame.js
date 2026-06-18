@@ -1,5 +1,96 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
+export const EXPLORE_ZONES = [
+  {
+    id: 'pine_forest',
+    name: '松林',
+    icon: '🌲',
+    description: '茂密的针叶林，树木繁茂，野兽较少出没。',
+    color: '#2d5a27',
+    rewards: { wood: [4, 8], food: [0, 2], hide: [0, 1], tools: [0, 0] },
+    baseRisk: 0.1,
+    duration: 8000,
+    unlockDay: 1
+  },
+  {
+    id: 'ice_lake',
+    name: '冰湖',
+    icon: '❄️',
+    description: '冰封的湖面，冰层下藏着肥美的鱼群。',
+    color: '#4a90a4',
+    rewards: { wood: [0, 1], food: [3, 6], hide: [1, 2], tools: [0, 0] },
+    baseRisk: 0.18,
+    duration: 10000,
+    unlockDay: 1
+  },
+  {
+    id: 'abandoned_mine',
+    name: '废弃矿洞',
+    icon: '⛏️',
+    description: '前人遗落的矿洞，或许能找到有用的工具和木材。',
+    color: '#6b4423',
+    rewards: { wood: [1, 3], food: [0, 1], hide: [0, 1], tools: [1, 2] },
+    baseRisk: 0.28,
+    duration: 12000,
+    unlockDay: 2
+  },
+  {
+    id: 'deep_snow',
+    name: '雪原深处',
+    icon: '🐺',
+    description: '一望无际的雪原，有珍贵的兽皮，也有凶猛的野兽。',
+    color: '#8b7355',
+    rewards: { wood: [0, 1], food: [2, 5], hide: [2, 4], tools: [0, 1] },
+    baseRisk: 0.4,
+    duration: 15000,
+    unlockDay: 3
+  },
+  {
+    id: 'frozen_ruins',
+    name: '冰封遗迹',
+    icon: '🏛️',
+    description: '被冰雪掩埋的古老遗迹，危机四伏但资源丰厚。',
+    color: '#4a4a8a',
+    rewards: { wood: [2, 5], food: [2, 5], hide: [1, 3], tools: [1, 3] },
+    baseRisk: 0.55,
+    duration: 18000,
+    unlockDay: 5
+  }
+]
+
+export const EXPLORE_ROUTES = [
+  {
+    id: 'safe',
+    name: '安全路线',
+    icon: '🛤️',
+    description: '绕远路避开危险，收益减少但更安全',
+    timeMult: 1.2,
+    riskMult: 0.5,
+    rewardMult: 0.8,
+    tempCost: 12
+  },
+  {
+    id: 'normal',
+    name: '常规路线',
+    icon: '🚶',
+    description: '标准行进路线，平衡收益与风险',
+    timeMult: 1.0,
+    riskMult: 1.0,
+    rewardMult: 1.0,
+    tempCost: 15
+  },
+  {
+    id: 'shortcut',
+    name: '捷径',
+    icon: '⚡',
+    description: '抄近道深入险境，时间短但风险极高',
+    timeMult: 0.6,
+    riskMult: 2.0,
+    rewardMult: 1.3,
+    tempCost: 20
+  }
+]
+
 export function useGame() {
   const temperature = ref(80)
   const heat = ref(50)
@@ -13,6 +104,13 @@ export function useGame() {
   const gameOver = ref(false)
   const gameOverReason = ref('')
   const actionLog = ref([])
+
+  const isExploring = ref(false)
+  const exploreTarget = ref(null)
+  const exploreRoute = ref(null)
+  const exploreProgress = ref(0)
+  const exploreTimer = null
+  const exploreStartTime = ref(0)
 
   const DAY_DURATION = 30000
   const NIGHT_DURATION = 20000
@@ -28,6 +126,14 @@ export function useGame() {
   const canMakeFire = computed(() => wood.value >= 3)
   const canHunt = computed(() => tools.value > 0)
   const huntSuccessRate = computed(() => 0.3 + tools.value * 0.15)
+
+  const availableZones = computed(() =>
+    EXPLORE_ZONES.filter(z => dayCount.value >= z.unlockDay)
+  )
+
+  const canExplore = computed(() =>
+    isDay.value && !isExploring.value && !gameOver.value && !isBlizzard.value
+  )
 
   function addLog(message, type = 'info') {
     const timestamp = new Date().toLocaleTimeString()
@@ -230,6 +336,10 @@ export function useGame() {
       isDay: isDay.value,
       dayCount: dayCount.value,
       isBlizzard: isBlizzard.value,
+      isExploring: isExploring.value,
+      exploreTargetId: exploreTarget.value ? exploreTarget.value.id : null,
+      exploreRouteId: exploreRoute.value ? exploreRoute.value.id : null,
+      exploreProgress: exploreProgress.value,
       savedAt: Date.now()
     }
     localStorage.setItem(`snowSurvival_${slot}`, JSON.stringify(gameState))
@@ -242,7 +352,7 @@ export function useGame() {
       addLog('没有找到存档', 'warning')
       return false
     }
-    
+
     try {
       const gameState = JSON.parse(saved)
       temperature.value = gameState.temperature
@@ -254,17 +364,23 @@ export function useGame() {
       isDay.value = gameState.isDay
       dayCount.value = gameState.dayCount
       isBlizzard.value = gameState.isBlizzard
+
+      isExploring.value = false
+      exploreTarget.value = null
+      exploreRoute.value = null
+      exploreProgress.value = 0
+
       gameOver.value = false
       gameOverReason.value = ''
       actionLog.value = []
-      
+
       stopTimers()
       startTimers()
-      
+
       if (!isDay.value) {
         startNightCycle()
       }
-      
+
       addLog(`成功加载存档：${slot === 'auto' ? '自动存档' : slot}`, 'success')
       return true
     } catch (e) {
@@ -297,6 +413,130 @@ export function useGame() {
     addLog(`已删除存档：${slot}`, 'info')
   }
 
+  function randInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min
+  }
+
+  function startExplore(zoneId, routeId) {
+    if (!canExplore.value) return false
+
+    const zone = EXPLORE_ZONES.find(z => z.id === zoneId)
+    const route = EXPLORE_ROUTES.find(r => r.id === routeId)
+    if (!zone || !route) return false
+    if (dayCount.value < zone.unlockDay) return false
+
+    const multiplier = isBlizzard.value ? 2 : 1
+    const tempCost = route.tempCost * multiplier
+    if (temperature.value <= tempCost + 10) {
+      addLog('体温过低，无法外出探索！', 'warning')
+      return false
+    }
+
+    temperature.value = Math.max(0, temperature.value - tempCost)
+
+    isExploring.value = true
+    exploreTarget.value = zone
+    exploreRoute.value = route
+    exploreProgress.value = 0
+    exploreStartTime.value = Date.now()
+
+    const totalDuration = Math.round(zone.duration * route.timeMult)
+
+    addLog(`出发探索【${zone.name}】，走${route.name}，消耗 ${tempCost} 体温`, 'action')
+
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - exploreStartTime.value
+      const progress = Math.min(100, (elapsed / totalDuration) * 100)
+      exploreProgress.value = progress
+
+      if (progress >= 100) {
+        clearInterval(timer)
+        finishExplore()
+      }
+    }, 100)
+
+    return true
+  }
+
+  function finishExplore() {
+    const zone = exploreTarget.value
+    const route = exploreRoute.value
+    if (!zone || !route) return
+
+    const finalRisk = zone.baseRisk * route.riskMult
+    const riskRoll = Math.random()
+
+    let riskEvent = null
+    let tempLoss = 0
+    let rewardMult = route.rewardMult
+
+    if (riskRoll < finalRisk) {
+      const riskLevel = Math.random()
+      if (riskLevel < 0.4) {
+        riskEvent = '遭遇野兽袭击'
+        tempLoss = randInt(8, 18)
+        rewardMult *= 0.7
+        addLog(`⚠️ 探索中遭遇野兽袭击！额外损失 ${tempLoss} 体温`, 'warning')
+      } else if (riskLevel < 0.75) {
+        riskEvent = '遭遇暴风雪'
+        tempLoss = randInt(5, 12)
+        rewardMult *= 0.85
+        if (!isBlizzard.value) {
+          isBlizzard.value = true
+        }
+        addLog(`⚠️ 途中遭遇暴风雪！额外损失 ${tempLoss} 体温`, 'danger')
+      } else {
+        riskEvent = '迷失方向'
+        tempLoss = randInt(10, 20)
+        rewardMult *= 0.6
+        addLog(`⚠️ 在雪原中迷失方向！额外损失 ${tempLoss} 体温`, 'warning')
+      }
+      temperature.value = Math.max(0, temperature.value - tempLoss)
+    }
+
+    const rewards = {}
+    const rewardNames = { wood: '木头', food: '食物', hide: '兽皮', tools: '工具' }
+    const rewardList = []
+    for (const [key, range] of Object.entries(zone.rewards)) {
+      const base = randInt(range[0], range[1])
+      const amount = Math.max(0, Math.round(base * rewardMult))
+      rewards[key] = amount
+      if (amount > 0) {
+        rewardList.push(`${amount} ${rewardNames[key]}`)
+      }
+      switch (key) {
+        case 'wood': wood.value += amount; break
+        case 'food': food.value += amount; break
+        case 'hide': hide.value += amount; break
+        case 'tools': tools.value += amount; break
+      }
+    }
+
+    const riskSuffix = riskEvent ? `（经历：${riskEvent}）` : ''
+    const rewardMsg = rewardList.length > 0 ? rewardList.join('、') : '空手而归'
+    addLog(`从【${zone.name}】返回${riskSuffix}，带回：${rewardMsg}`, riskEvent ? 'warning' : 'success')
+
+    if (Math.random() < BLIZZARD_CHANCE * 0.3 && !isBlizzard.value) {
+      triggerBlizzard()
+    }
+
+    isExploring.value = false
+    exploreTarget.value = null
+    exploreRoute.value = null
+    exploreProgress.value = 0
+
+    checkGameOver()
+  }
+
+  function cancelExplore() {
+    if (!isExploring.value) return
+    addLog('紧急撤回探索队伍！所有已获取资源丢失', 'warning')
+    isExploring.value = false
+    exploreTarget.value = null
+    exploreRoute.value = null
+    exploreProgress.value = 0
+  }
+
   function restartGame() {
     temperature.value = 80
     heat.value = 50
@@ -310,10 +550,15 @@ export function useGame() {
     gameOver.value = false
     gameOverReason.value = ''
     actionLog.value = []
-    
+
+    isExploring.value = false
+    exploreTarget.value = null
+    exploreRoute.value = null
+    exploreProgress.value = 0
+
     stopTimers()
     startTimers()
-    
+
     addLog('新游戏开始！祝你好运！', 'success')
   }
 
@@ -353,6 +598,14 @@ export function useGame() {
     loadGame,
     getSaveSlots,
     deleteSave,
-    restartGame
+    restartGame,
+    availableZones,
+    canExplore,
+    isExploring,
+    exploreTarget,
+    exploreRoute,
+    exploreProgress,
+    startExplore,
+    cancelExplore
   }
 }
