@@ -109,7 +109,6 @@ export function useGame() {
   const exploreTarget = ref(null)
   const exploreRoute = ref(null)
   const exploreProgress = ref(0)
-  const exploreTimer = null
   const exploreStartTime = ref(0)
 
   const DAY_DURATION = 30000
@@ -120,6 +119,7 @@ export function useGame() {
   let dayNightTimer = null
   let nightConsumptionTimer = null
   let autoSaveTimer = null
+  let exploreTimer = null
 
   const isNight = computed(() => !isDay.value)
   const isDanger = computed(() => temperature.value < 30)
@@ -147,6 +147,14 @@ export function useGame() {
     if (temperature.value <= 20) {
       gameOver.value = true
       gameOverReason.value = '体温过低，你在严寒中失去了意识...'
+      if (exploreTimer) {
+        clearInterval(exploreTimer)
+        exploreTimer = null
+      }
+      isExploring.value = false
+      exploreTarget.value = null
+      exploreRoute.value = null
+      exploreProgress.value = 0
       stopTimers()
       addLog('游戏结束：体温过低！', 'danger')
     }
@@ -177,10 +185,23 @@ export function useGame() {
 
   function startNightCycle() {
     addLog(`夜幕降临，第 ${dayCount.value} 天结束`, 'info')
+
+    if (isExploring.value) {
+      if (exploreTimer) {
+        clearInterval(exploreTimer)
+        exploreTimer = null
+      }
+      addLog('天黑了，探索队伍被迫撤回，未带回任何资源', 'warning')
+      isExploring.value = false
+      exploreTarget.value = null
+      exploreRoute.value = null
+      exploreProgress.value = 0
+    }
+
     nightConsumptionTimer = setInterval(() => {
       consumeHeat()
     }, 1000)
-    
+
     if (Math.random() < BLIZZARD_CHANCE) {
       triggerBlizzard()
     }
@@ -323,6 +344,10 @@ export function useGame() {
       clearInterval(autoSaveTimer)
       autoSaveTimer = null
     }
+    if (exploreTimer) {
+      clearInterval(exploreTimer)
+      exploreTimer = null
+    }
   }
 
   function saveGame(slot = 'manual') {
@@ -444,13 +469,19 @@ export function useGame() {
 
     addLog(`出发探索【${zone.name}】，走${route.name}，消耗 ${tempCost} 体温`, 'action')
 
-    const timer = setInterval(() => {
+    if (exploreTimer) {
+      clearInterval(exploreTimer)
+      exploreTimer = null
+    }
+
+    exploreTimer = setInterval(() => {
       const elapsed = Date.now() - exploreStartTime.value
       const progress = Math.min(100, (elapsed / totalDuration) * 100)
       exploreProgress.value = progress
 
       if (progress >= 100) {
-        clearInterval(timer)
+        clearInterval(exploreTimer)
+        exploreTimer = null
         finishExplore()
       }
     }, 100)
@@ -530,6 +561,10 @@ export function useGame() {
 
   function cancelExplore() {
     if (!isExploring.value) return
+    if (exploreTimer) {
+      clearInterval(exploreTimer)
+      exploreTimer = null
+    }
     addLog('紧急撤回探索队伍！所有已获取资源丢失', 'warning')
     isExploring.value = false
     exploreTarget.value = null
